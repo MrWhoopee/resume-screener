@@ -1,3 +1,4 @@
+import fitz
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,4 +17,10 @@ def read_root():
 
 @app.post("/upload-resume")
 async def upload_resume(file: UploadFile = File(...)):
-    return {"filename": file.filename, "status": "received"}
+    content = await file.read()
+    doc = fitz.open(stream=content, filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    
+    return {"filename": file.filename, "extracted_text": text[:500] + "..."}
