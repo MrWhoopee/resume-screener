@@ -14,3 +14,17 @@ export async function uploadResume(file: File) {
 
   return response.data;
 }
+
+export async function analyzeMatch(
+  resume_text: string,
+  job_description: string,
+) {
+  const formData = new FormData();
+  formData.append("resume_text", resume_text);
+  formData.append("job_description", job_description);
+  const response = await axios.post(
+    "http://localhost:8000/analyze-match",
+    formData,
+  );
+  return response.data;
+}

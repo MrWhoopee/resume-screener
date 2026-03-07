@@ -1,18 +1,24 @@
 import os
-import fitz 
+import fitz
+import json
+import re
 from dotenv import load_dotenv
 from openai import OpenAI
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+client = OpenAI(
+    base_url="http://localhost:11434/v1", 
+    api_key="ollama" 
+)
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -21,53 +27,38 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 
 @app.get("/")
 def read_root():
-    return {"message": "Backend is running and AI-ready!"}
+    return {"message": "Backend is running!"}
 
 @app.post("/upload-resume")
 async def upload_resume(file: UploadFile = File(...)):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-    
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
-
+        raise HTTPException(status_code=400, detail="File too large")
+    
     try:
         doc = fitz.open(stream=content, filetype="pdf")
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        
-        if not text.strip():
-            raise ValueError("PDF is empty or contains no extractable text")
-            
+        text = "".join([page.get_text() for page in doc])
+        return {"resume_text": text}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": (
-                        "You are a professional HR assistant. Analyze the resume text and return a JSON object with: "
-                        "'candidate_name' (string), 'skills' (list of strings), 'experience_summary' (string), "
-                        "and 'hiring_recommendation' (string - brief advice)."
-                    )
-                },
-                {"role": "user", "content": f"Resume text: {text[:4000]}"} 
-            ],
-            response_format={"type": "json_object"}
-        )
-        
-        import json
-        analysis_result = json.loads(response.choices[0].message.content)
-        
-        return {
-            "filename": file.filename,
-            "analysis": analysis_result
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Analysis Error: {str(e)}")
+@app.post("/analyze-match")
+async def analyze_match(resume_text: str = Form(...), job_description: str = Form(...)):
+    prompt = f"""
+    You are an expert HR. Compare this Resume and Job Description.
+    Return ONLY a valid JSON object with keys: "match_score" (int), "missing_skills" (list), "strong_points" (list), "recommendation" (string).
+    
+    Resume: {resume_text[:3000]}
+    Job Description: {job_description[:3000]}
+    """
+    
+    response = client.chat.completions.create(
+        model="llama3.2",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    raw = response.choices[0].message.content
+    match = re.search(r'\{.*\}', raw, re.DOTALL)
+    result = json.loads(match.group(0)) if match else json.loads(raw)
+    
+    return {"analysis": result}
