@@ -4,6 +4,8 @@ An automated tool designed for smart resume analysis. It leverages Artificial In
 
 ## 📸 Architecture Overview
 
+![Architecture Overview](./main.png)
+
 ## 🛠 Tech Stack
 
 - **Backend:** Python, FastAPI, PyMuPDF (fitz)
